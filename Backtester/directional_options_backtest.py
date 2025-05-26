@@ -7,7 +7,7 @@ from joblib import Parallel, delayed
 import multiprocessing
 from tqdm.auto import tqdm
 
-from directional_options import backtest_directional_scalp  # your backtest fn
+from Algorithms.directional_options import backtest_directional_scalp  # your backtest fn
 
 # --- LOAD BAR DATA ---
 UNDERLYING_SYMBOL = "SPY"
