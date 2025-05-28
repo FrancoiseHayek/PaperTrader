@@ -12,6 +12,7 @@ import (
 	"github.com/alpacahq/alpaca-trade-api-go/v3/marketdata"
 	"github.com/alpacahq/alpaca-trade-api-go/v3/marketdata/stream"
 	"github.com/joho/godotenv"
+	"github.com/shopspring/decimal"
 )
 
 func main() {
@@ -23,7 +24,7 @@ func main() {
 	defer cancel()
 
 	// Create a trading client
-	tradingMarketClient := alpaca.NewClient(alpaca.ClientOpts{
+	tradingClient := alpaca.NewClient(alpaca.ClientOpts{
 		APIKey:     os.Getenv("APCA_API_KEY_ID"),
 		APISecret:  os.Getenv("APCA_API_SECRET_KEY"),
 		BaseURL:    os.Getenv("APCA_BASE_URL"),
@@ -31,12 +32,12 @@ func main() {
 		RetryDelay: 200 * time.Millisecond,
 	})
 
-	if _, err := tradingMarketClient.GetAccount(); err != nil {
+	if _, err := tradingClient.GetAccount(); err != nil {
 		log.Fatalf("Failire to connect account: %v", err)
 	}
 
 	// Check if market is open
-	clock, clockErr := tradingMarketClient.GetClock()
+	clock, clockErr := tradingClient.GetClock()
 	if clockErr != nil {
 
 		fmt.Printf("Clock error: %v", clockErr)
@@ -68,9 +69,51 @@ func main() {
 		}
 	}()
 
+	go func() {
+		qty := decimal.NewFromInt(1)
+		fmt.Println("Sleeping for 30s")
+		time.Sleep(time.Second * 30)
+		fmt.Println("Submitting order for SPY")
+
+		// Submit a market buy order for 1 share of SPY
+		buyOrder, buyErr := tradingClient.PlaceOrder(alpaca.PlaceOrderRequest{
+			Symbol:      "SPY",
+			Qty:         &qty,
+			Side:        alpaca.Buy,
+			Type:        alpaca.Market,
+			TimeInForce: alpaca.Day,
+		})
+		if buyErr != nil {
+			log.Fatalf("Failed to submit order: %v", buyErr)
+		}
+
+		fmt.Printf("Order submitted: ID=%s, Status=%s, Symbol=%s\n", buyOrder.ID, buyOrder.Status, buyOrder.Symbol)
+
+		fmt.Println("Sleeping for another 30s")
+		time.Sleep(time.Second * 30)
+		fmt.Println("Submitting sell order")
+
+		sellOrder, sellErr := tradingClient.PlaceOrder(alpaca.PlaceOrderRequest{
+			Symbol:      "SPY",
+			Qty:         &qty,
+			Side:        alpaca.Sell,
+			Type:        alpaca.Market,
+			TimeInForce: alpaca.Day,
+		})
+
+		if sellErr != nil {
+			log.Fatalf("Failed to submit sell order: %v", sellErr)
+		}
+
+		fmt.Printf("Order submitted: ID=%s, Status=%s, Symbol=%s\n", sellOrder.ID, sellOrder.Status, sellOrder.Symbol)
+
+	}()
+
+	// Keep program running until a keyboard interrupt
 	select {
 	case err := <-marketDataClient.Terminated():
 		log.Printf("Stream terminated: %v", err)
+
 	case <-waitForInterrupt():
 		log.Println("Interrupt received. Shutting down...")
 		cancel()
