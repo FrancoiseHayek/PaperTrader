@@ -91,7 +91,7 @@ func main() {
 	go func(ctx context.Context, logCh chan string, barCh chan stream.Bar) {
 		defer wg.Done()
 
-		logCh <- "Starting market data stream..."
+		logCh <- "Starting Market data stream..."
 
 		// Create a streaming client for market data
 		marketDataClient := stream.NewStocksClient(marketdata.IEX)
@@ -133,7 +133,7 @@ func main() {
 	go func(ctx context.Context, tradingClient *alpaca.Client, logCh chan string) {
 		defer wg.Done()
 
-		logCh <- "Starting trade update stream..."
+		logCh <- "Starting Trade update stream..."
 
 		tradingClient.StreamTradeUpdatesInBackground(ctx, func(update alpaca.TradeUpdate) {
 
@@ -170,7 +170,8 @@ func main() {
 	go func(ctx context.Context, orderCh chan alpaca.PlaceOrderRequest, tradingClient *alpaca.Client, logCh chan string) {
 		defer wg.Done()
 
-		logCh <- "Starting trading stream..."
+		logCh <- "Starting Trading stream..."
+
 		// Consume orders and send to Alpaca API
 
 		for {
