@@ -171,6 +171,7 @@ func main() {
 		defer wg.Done()
 
 		logCh <- "Starting Trading stream..."
+
 		// Consume orders and send to Alpaca API
 
 		for {
