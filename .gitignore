@@ -8,3 +8,7 @@ Backtester/.venv/
 __pycache__/
 *.py[cod]
 .vscode/
+
+# EC2 instance
+*.pem
+*.rdp

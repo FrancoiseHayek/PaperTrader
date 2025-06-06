@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/FrancoiseHayek/PaperTrader/algorithms"
@@ -17,19 +19,18 @@ import (
 
 func main() {
 
+	log.Println("Starting up.")
+
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	// Keep program running until a keyboard interrupt
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+
 	// Load key environemnt variables
 	if err := godotenv.Load("../.env"); err != nil {
 		log.Printf("Could not load environment variables: %v", err)
 	}
-
-	// Create channels for bars and orders
-	barCh := make(chan stream.Bar)
-	orderCh := make(chan alpaca.PlaceOrderRequest)
-
-	mdCtx, mdCancel := context.WithCancel(context.Background())
-	defer mdCancel()
-	tdCtx, tdCancel := context.WithCancel(context.Background())
-	defer tdCancel()
 
 	// Create a trading client
 	tradingClient := alpaca.NewClient(alpaca.ClientOpts{
@@ -44,8 +45,6 @@ func main() {
 		log.Fatalf("Failire to connect to account: %v", err)
 	}
 
-	tradingClient.StreamTradeUpdatesInBackground(tdCtx, tradeUpdateHandler)
-
 	// Check if market is open
 	clock, clockErr := tradingClient.GetClock()
 	if clockErr != nil {
@@ -53,87 +52,150 @@ func main() {
 	}
 
 	if clock.IsOpen {
-		fmt.Println("Market is OPEN")
+		log.Println("Market is OPEN")
 	} else {
-		fmt.Printf("Market is CLOSED, next open on: %v", clock.NextOpen)
+		log.Printf("Market is CLOSED, next open on: %v\nExiting...\n", clock.NextOpen)
 	}
 
-	// Create a streaming client for market data
-	marketDataClient := stream.NewStocksClient(marketdata.IEX)
+	// Create channels for bars and orders
+	barCh := make(chan stream.Bar)
+	orderCh := make(chan alpaca.PlaceOrderRequest)
+	logCh := make(chan string, 150)
 
-	// Connect to the WebSocket stream
-	if err := marketDataClient.Connect(mdCtx); err != nil {
-		log.Printf("Failed to connext: %v", err)
-	}
+	logCtx, logCancel := context.WithCancel(context.Background())
+	defer logCancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Subscibe to real-time bar updates for SPY
-	go func() {
+	var wg sync.WaitGroup
+	wg.Add(5)
+
+	// Logger
+	go func(logCtx context.Context, logCh chan string) {
+		defer wg.Done()
+		log.Println("Starting Logger...")
+
+		for {
+			select {
+			case <-logCtx.Done():
+				log.Println("Logger shutting down...")
+				return
+
+			case msg := <-logCh:
+				log.Println(msg)
+			}
+		}
+	}(logCtx, logCh)
+
+	// Market data
+	go func(ctx context.Context, logCh chan string, barCh chan stream.Bar) {
+		defer wg.Done()
+
+		logCh <- "Starting Market data stream..."
+
+		// Create a streaming client for market data
+		marketDataClient := stream.NewStocksClient(marketdata.IEX)
+
+		// Connect to the Websocket stream
+		if err := marketDataClient.Connect(ctx); err != nil {
+			msg := fmt.Sprintf("Unable to connect WebSocket stream for market data: %v", err)
+			logCh <- msg
+			return
+		} else {
+			logCh <- "Market Data stream connected"
+		}
+
 		subscribeErr := marketDataClient.SubscribeToBars(func(bar stream.Bar) {
 			barCh <- bar
 		}, "SPY")
 
 		if subscribeErr != nil {
-			log.Printf("failed to subscribe to SPY bars: %v", subscribeErr)
+			msg := fmt.Sprintf("Failed to subscribe to SPY bars: %v", subscribeErr)
+			logCh <- msg
+			return
 		}
-	}()
 
-	// Run algorithm
-	go algorithms.SimpleAlgo(barCh, orderCh)
+		// Wait until the context is canceled (program is terminated)
+		<-ctx.Done()
 
-	// Consume orders and send to Alpaca
-	go func() {
-		for orderReq := range orderCh {
-			_, err := tradingClient.PlaceOrder(orderReq)
-			if err != nil {
-				log.Printf("Unable to place order: %v", err)
-				continue
+		logCh <- "Market data stream shutting down..."
+
+	}(ctx, logCh, barCh)
+
+	// Algorithm
+	go func(ctx context.Context, logCh chan string, barCh chan stream.Bar, orderCh chan alpaca.PlaceOrderRequest) {
+		defer wg.Done()
+		logCh <- "Starting Algorithm..."
+		algorithms.SimpleAlgo(ctx, barCh, orderCh, logCh)
+	}(ctx, logCh, barCh, orderCh)
+
+	// Trade data
+	go func(ctx context.Context, tradingClient *alpaca.Client, logCh chan string) {
+		defer wg.Done()
+
+		logCh <- "Starting Trade update stream..."
+
+		tradingClient.StreamTradeUpdatesInBackground(ctx, func(update alpaca.TradeUpdate) {
+
+			msg := fmt.Sprintf("Trade Update Received: %v. ", update.Event)
+
+			switch update.Event {
+			case "fill":
+				msg += fmt.Sprintf("Order %s filled. Qty: %s at Price: %s",
+					update.Order.ID,
+					update.Order.FilledQty,
+					update.Order.FilledAvgPrice)
+			case "pending_new":
+				msg += fmt.Sprintf("New order pending: %s", update.Order.ID)
+			case "new":
+				msg += fmt.Sprintf("New order submitted: %s", update.Order.ID)
+			case "canceled":
+				msg += fmt.Sprintf("Order %s canceled", update.Order.ID)
+			case "rejected":
+				msg += fmt.Sprintf("Order %s was rejected: %s", update.Order.ID, update.Order.FailedAt)
+			default:
+				msg += fmt.Sprintf("Unhandled update event: %+v", update)
+			}
+
+			logCh <- msg
+		})
+
+		// Wait until the context is canceled (program is terminated)
+		<-ctx.Done()
+
+		logCh <- "Trade data stream shutting down..."
+	}(ctx, tradingClient, logCh)
+
+	// Trade client
+	go func(ctx context.Context, orderCh chan alpaca.PlaceOrderRequest, tradingClient *alpaca.Client, logCh chan string) {
+		defer wg.Done()
+
+		logCh <- "Starting Trading stream..."
+		// Consume orders and send to Alpaca API
+
+		for {
+			select {
+			case <-ctx.Done():
+				logCh <- "Trading stream shutting down..."
+				return
+			case orderReq := <-orderCh:
+				_, err := tradingClient.PlaceOrder(orderReq)
+				if err != nil {
+					msg := fmt.Sprintf("Unable to place order: %v", err)
+					logCh <- msg
+				}
 			}
 		}
-	}()
+	}(ctx, orderCh, tradingClient, logCh)
 
-	// Keep program running until a keyboard interrupt
-	select {
-	case err := <-marketDataClient.Terminated():
-		log.Printf("Market Data stream terminated: %v", err)
+	<-sig
 
-	case <-waitForInterrupt():
-		log.Println("Interrupt received. Shutting down...")
-		tdCancel()
-		mdCancel()
+	logCh <- "Keyboard interrupt received, Shutting down..."
 
-		// Wait for clean termination
-		<-marketDataClient.Terminated()
-		log.Println("Shutdown complete.")
-	}
-}
+	cancel()
+	time.Sleep(time.Second * 3)
+	logCancel()
+	wg.Wait()
 
-func waitForInterrupt() <-chan os.Signal {
-
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt)
-	return sig
-}
-
-func tradeUpdateHandler(update alpaca.TradeUpdate) {
-
-	fmt.Printf("Trade Update Received: %v\n", update.Event)
-
-	switch update.Event {
-	case "fill":
-		fmt.Printf("Order %s filled. Qty: %s at Price: %s\n",
-			update.Order.ID,
-			update.Order.FilledQty,
-			update.Order.FilledAvgPrice,
-		)
-	case "pending_new":
-		fmt.Printf("New order pending: %s\n", update.Order.ID)
-	case "new":
-		fmt.Printf("New order submitted: %s\n", update.Order.ID)
-	case "canceled":
-		fmt.Printf("Order %s canceled\n", update.Order.ID)
-	case "rejected":
-		fmt.Printf("Order %s was rejected: %s\n", update.Order.ID, update.Order.FailedAt)
-	default:
-		fmt.Printf("Unhandled update event: %+v\n", update)
-	}
+	log.Println("Shutdown complete.")
 }
