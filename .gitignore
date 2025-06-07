@@ -12,3 +12,6 @@ __pycache__/
 # EC2 instance
 *.pem
 *.rdp
+
+# Algorithms
+Algorithms/rsi_bullish.go
