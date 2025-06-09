@@ -61,6 +61,7 @@ func main() {
 	barCh := make(chan stream.Bar)
 	orderCh := make(chan alpaca.PlaceOrderRequest)
 	logCh := make(chan string, 150)
+	updateCh := make(chan alpaca.TradeUpdate)
 
 	logCtx, logCancel := context.WithCancel(context.Background())
 	defer logCancel()
@@ -123,11 +124,11 @@ func main() {
 	}(ctx, logCh, barCh)
 
 	// Algorithm
-	go func(ctx context.Context, logCh chan string, barCh chan stream.Bar, orderCh chan alpaca.PlaceOrderRequest) {
+	go func(ctx context.Context, logCh chan string, barCh chan stream.Bar, orderCh chan alpaca.PlaceOrderRequest, updateCh chan alpaca.TradeUpdate) {
 		defer wg.Done()
 		logCh <- "Starting Algorithm..."
-		algorithms.SimpleAlgo(ctx, barCh, orderCh, logCh)
-	}(ctx, logCh, barCh, orderCh)
+		algorithms.Execute_RSI_Bullish(ctx, logCh, barCh, orderCh, updateCh)
+	}(ctx, logCh, barCh, orderCh, updateCh)
 
 	// Trade data
 	go func(ctx context.Context, tradingClient *alpaca.Client, logCh chan string) {
@@ -141,6 +142,7 @@ func main() {
 
 			switch update.Event {
 			case "fill":
+				updateCh <- update
 				msg += fmt.Sprintf("Order %s filled. Qty: %s at Price: %s",
 					update.Order.ID,
 					update.Order.FilledQty,
