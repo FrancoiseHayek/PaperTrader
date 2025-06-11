@@ -53,10 +53,15 @@ func main() {
 	updateCh := make(chan alpaca.TradeUpdate)
 	logCh := make(chan string)
 
-	// Run engine
-	go algorithms.Execute_RSI_Bullish(ctx, logCh, algoBarCh, orderCh, updateCh)
-
 	state := &algorithms.State{}
+
+	// Run engine
+	go func() {
+
+		state = algorithms.Execute_RSI_Bullish(ctx, logCh, algoBarCh, orderCh, updateCh)
+
+	}()
+
 	numPositionsOpen := []int{0}
 	numTrades := 0
 
@@ -137,7 +142,15 @@ func main() {
 								Notional:       order.Notional,
 							},
 						}
-						updateCh <- trupd
+
+						// updateCh <- trupd // Removed for suspicion of circular dependency causing deadlock
+
+						state.Update(func(s *algorithms.State) {
+							s.Cash += int(trupd.Order.Notional.IntPart())
+							s.OpenPositions--
+							s.SharesHeld -= trupd.Order.FilledQty.InexactFloat64()
+						})
+
 						sellOrders = append(sellOrders[:i], sellOrders[i+1:]...)
 
 						n := len(numPositionsOpen)
