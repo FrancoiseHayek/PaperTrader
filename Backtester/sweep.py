@@ -45,7 +45,7 @@ def main():
     summary = []
 
     total = len(all_combos)
-    for params in tqdm(all_combos, total=total, title="Parameter Sweep"):
+    for params in tqdm(all_combos, total=total):
       res = run_harness(params, symbol, start, end)
 
       # Extract the pieces you need
