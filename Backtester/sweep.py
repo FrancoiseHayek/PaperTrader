@@ -45,7 +45,7 @@ def main():
     summary = []
 
     total = len(all_combos)
-    for params in all_combos:
+    for params in tqdm(all_combos, total=total, title="Parameter Sweep"):
       res = run_harness(params, symbol, start, end)
 
       # Extract the pieces you need
@@ -69,11 +69,7 @@ def main():
 
     df_summary = pd.DataFrame(summary)
 
-    # Write summary to CSV
-    pd.DataFrame(summary).to_csv("sweep_summary.csv", index=False)
-
-    # top10 = df_summary.sort_values("shares_held", ascending=False).head(10)
-    # top10.to_csv("top10_by_shares_held.csv", index=False)
+    # top10 = df_summary.sort_values("shares_won", ascending=False).head(10)
 
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', 120)  # or use shutil.get_terminal_size()
