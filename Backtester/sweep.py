@@ -28,7 +28,7 @@ def run_harness(params, symbol, start, end):
     with open("../algorithms/rsi_bullish_parameters.json", "w") as f:
         json.dump(params, f)
     with open("../algorithms/rsi_bullish_state.json", "w") as f:
-        json.dump({"Cash": 1000, "OpenPositions": 0, "SharesHeld": 0}, f)
+        json.dump({"Cash": 1000, "OpenPositions": 0, "SharesHeld": 0, "SharesWon": 0.0}, f)
     # call the Go program
     subprocess.run([
         "go", "run", "./harness.go",
@@ -45,22 +45,25 @@ def main():
     summary = []
 
     total = len(all_combos)
-    for params in tqdm(all_combos, total=total, desc="Sweeping params"):
+    for params in all_combos:
       res = run_harness(params, symbol, start, end)
 
       # Extract the pieces you need
       state = res["State"]    
-      avg_pos = res["AverageNumPositions"]    
-      n_trades = res["NumTrades"]             
+      n_open = state["OpenPositions"]
+      avg_pos = res["AverageNumPositions"].iloc[0]
+      n_trades = res["NumTrades"].iloc[0]
+      shares_won = state["SharesWon"]        
 
       # Merge params and these metrics into one dict
       entry = {
           **params,                            # expands your grid parameters
           "cash_end":        state["Cash"],    # pick whichever fields you want from state
-          # "open_positions":  int(state["OpenPositions"]),
-          "shares_held":     int(state["SharesHeld"]),
-          # "avg_positions":   avg_pos,
-          # "num_trades":      n_trades,
+          "open_pos":  n_open,
+          "shares_held":     state["SharesHeld"],
+          "shares_won":      (shares_won),
+          "avg_pos":   avg_pos,
+          "num_trades":      n_trades,
       }
       summary.append(entry)
 
