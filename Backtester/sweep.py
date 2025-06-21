@@ -7,13 +7,22 @@ from tabulate import tabulate
 from tqdm import tqdm
 
 # 1) Define your grid of lists
+# param_grid = {
+#   "Notional": ["10", "50", "100", "200", "250", "500"],
+#   "RSI_thresh": [20, 25, 30, 35, 40],
+#   "RSI_window": [5, 10, 15, 20, 25],
+#   "VolMA_thresh": [0.8, 0.9, 1.0, 1.1, 1.2],
+#   "VolMA_window": [5, 7, 10, 15, 17, 20],
+#   "Profit_factor": [0.0005, 0.001, 0.002, 0.005]
+# }
+
 param_grid = {
-  "Notional": ["10", "50", "100", "200", "250", "500"],
-  "RSI_thresh": [20, 25, 30, 35, 40],
-  "RSI_window": [5, 10, 15, 20, 25],
-  "VolMA_thresh": [0.8, 0.9, 1.0, 1.1, 1.2],
-  "VolMA_window": [5, 7, 10, 15, 17, 20],
-  "Profit_factor": [0.0005, 0.001, 0.002, 0.005]
+  "Notional": ["100", "10"],
+  "RSI_thresh": [35, 25],
+  "RSI_window": [25, 20],
+  "VolMA_thresh": [1.1, 1.2],
+  "VolMA_window": [17, 20],
+  "Profit_factor": [0.005, 0.02]
 }
 
 # 2) Build the list of all combinations
@@ -52,30 +61,28 @@ def main():
       state = res["State"]    
       n_open = state["OpenPositions"]
       avg_pos = res["AverageNumPositions"].iloc[0]
-      n_trades = res["NumTrades"].iloc[0]
-      shares_won = state["SharesWon"]        
+      n_trades = res["NumTrades"].iloc[0]       
 
       # Merge params and these metrics into one dict
       entry = {
           **params,                            # expands your grid parameters
-          "cash_end":        state["Cash"],    # pick whichever fields you want from state
-          "open_pos":  n_open,
-          "shares_held":     state["SharesHeld"],
-          "shares_won":      (shares_won),
+          "csh_end":        state["Cash"],    # pick whichever fields you want from state
+          "opn_pos":  n_open,
+          "shrs_held":     state["SharesHeld"],
           "avg_pos":   avg_pos,
-          "num_trades":      n_trades,
+          "num_trds":      n_trades,
       }
       summary.append(entry)
 
     df_summary = pd.DataFrame(summary)
 
-    top10 = df_summary.sort_values("shares_won", ascending=False).head(10)
+    sorted_df = df_summary.sort_values("csh_end", ascending=False)
 
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', 120)  # or use shutil.get_terminal_size()
     pd.set_option('display.max_colwidth', None)
 
-    print(tabulate(top10, headers='keys', tablefmt='github'))
+    print(tabulate(sorted_df, headers='keys', tablefmt='github'))
 
 
 if __name__ == "__main__":

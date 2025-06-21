@@ -132,21 +132,23 @@ func main() {
 					order := sellOrders[i]
 					target := order.LimitPrice
 					if decimalOr(lastBar.High).GreaterThanOrEqual(*target) {
+
+						ntnl := order.Qty.Mul(*order.LimitPrice)
 						trupd := alpaca.TradeUpdate{
 							Event: "fill",
 							Order: alpaca.Order{
 								Symbol:         order.Symbol,
 								Side:           order.Side,
 								FilledAvgPrice: target,
-								FilledQty:      order.Notional.Div(*target),
-								Notional:       order.Notional,
+								FilledQty:      *order.Qty,
+								Notional:       &ntnl,
 							},
 						}
 
 						// updateCh <- trupd // Removed for suspicion of circular dependency causing deadlock
 
 						state.Update(func(s *algorithms.State) {
-							s.Cash += int(trupd.Order.Notional.IntPart())
+							s.Cash += trupd.Order.Notional.InexactFloat64()
 							s.OpenPositions--
 							s.SharesHeld -= trupd.Order.FilledQty.InexactFloat64()
 						})
