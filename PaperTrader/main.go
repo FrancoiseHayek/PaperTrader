@@ -12,7 +12,6 @@ import (
 
 	"github.com/FrancoiseHayek/PaperTrader/algorithms"
 	"github.com/alpacahq/alpaca-trade-api-go/v3/alpaca"
-	"github.com/alpacahq/alpaca-trade-api-go/v3/marketdata"
 	"github.com/alpacahq/alpaca-trade-api-go/v3/marketdata/stream"
 	"github.com/joho/godotenv"
 )
@@ -89,39 +88,14 @@ func main() {
 	}(logCtx, logCh)
 
 	// Market data
-	go func(ctx context.Context, logCh chan string, barCh chan stream.Bar) {
+	go func(ctx context.Context, logCh chan string) {
 		defer wg.Done()
 
-		logCh <- "Starting Market data stream..."
+		logCh <- "Calling algorithm's market data function..."
 
-		// Create a streaming client for market data
-		marketDataClient := stream.NewStocksClient(marketdata.IEX)
+		logCh <- "Market data stream shut down..."
 
-		// Connect to the Websocket stream
-		if err := marketDataClient.Connect(ctx); err != nil {
-			msg := fmt.Sprintf("Unable to connect WebSocket stream for market data: %v", err)
-			logCh <- msg
-			return
-		} else {
-			logCh <- "Market Data stream connected"
-		}
-
-		subscribeErr := marketDataClient.SubscribeToBars(func(bar stream.Bar) {
-			barCh <- bar
-		}, "SPY")
-
-		if subscribeErr != nil {
-			msg := fmt.Sprintf("Failed to subscribe to SPY bars: %v", subscribeErr)
-			logCh <- msg
-			return
-		}
-
-		// Wait until the context is canceled (program is terminated)
-		<-ctx.Done()
-
-		logCh <- "Market data stream shutting down..."
-
-	}(ctx, logCh, barCh)
+	}(ctx, logCh)
 
 	// Algorithm
 	go func(ctx context.Context, logCh chan string, barCh chan stream.Bar, orderCh chan alpaca.PlaceOrderRequest, updateCh chan alpaca.TradeUpdate) {
